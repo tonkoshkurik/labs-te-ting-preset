@@ -1,4 +1,4 @@
-import { EFFECTS, createDefaultSampleConfig, SINGLE_INSTANCE_EFFECTS } from './effects.js';
+import { EFFECTS, createDefaultSampleConfig, SINGLE_INSTANCE_EFFECTS, formatParamHint } from './effects.js';
 import { appState, ensurePreset, PreviewMode, markDirty, markClean, defaultCustomSamples, applyCustomSamplesFromConfig, customSamplesToConfig } from './state.js';
 import { audioEngine } from './audio-engine.js';
 import { saveState } from './storage.js';
@@ -1034,6 +1034,11 @@ export function setupEventListeners() {
         } else {
           valueEl.textContent = value.toFixed(2);
         }
+
+        const hintEl = document.getElementById(`hint-${index}-${param}`);
+        if (hintEl) {
+          hintEl.textContent = formatParamHint(effectConfig?.effect, param, value) || '';
+        }
       }
     }
   });
@@ -1183,5 +1188,71 @@ export function setupEventListeners() {
     select.addEventListener('change', (ev) => {
       updateCustomSample(parseInt(ev.target.dataset.slot), 'playmode', ev.target.value);
     });
+  });
+  document.querySelectorAll('.sample-row__duck').forEach(input => {
+    input.addEventListener('input', (ev) => {
+      updateCustomSample(parseInt(ev.target.dataset.slot), 'duck', parseFloat(ev.target.value) || 0);
+    });
+  });
+
+  // ---- Spectrum source (emulation vs a real captured audio input) ----
+  const spectrumEmuBtn = document.getElementById('spectrumSourceEmulation');
+  const spectrumHwBtn = document.getElementById('spectrumSourceHardware');
+  const spectrumHwControls = document.getElementById('spectrumHwControls');
+  const spectrumHwSelect = document.getElementById('spectrumHwDeviceSelect');
+  const spectrumHwConnectBtn = document.getElementById('spectrumHwConnectBtn');
+  const spectrumHwStatus = document.getElementById('spectrumHwStatus');
+  const spectrumHint = document.getElementById('spectrumHint');
+
+  const EMULATION_HINT = 'orange fill = live output spectrum. colored curves = each filter/EQ\'s actual response (Q = bump width, gain = bump height). cutoff-to-Hz mapping is an estimate, not from the firmware.';
+  const HARDWARE_HINT = 'green fill = real captured audio (e.g. the TING\'s output jack via your interface). curves are still the editor\'s estimated filter response - use this to compare against what the hardware actually does.';
+
+  async function populateAudioInputs() {
+    try {
+      const devices = await audioEngine.listAudioInputs();
+      spectrumHwSelect.innerHTML = devices.map(d =>
+        `<option value="${d.deviceId}">${d.label || 'Input device'}</option>`
+      ).join('');
+    } catch {
+      spectrumHwStatus.textContent = 'Could not list input devices - check mic permission.';
+    }
+  }
+
+  spectrumEmuBtn.addEventListener('click', () => {
+    spectrumEmuBtn.classList.add('mode-toggle__btn--active');
+    spectrumHwBtn.classList.remove('mode-toggle__btn--active');
+    spectrumHwControls.hidden = true;
+    spectrumHint.textContent = EMULATION_HINT;
+    audioEngine.setSpectrumSource('emulation');
+    spectrumHwStatus.textContent = '';
+  });
+
+  spectrumHwBtn.addEventListener('click', async () => {
+    spectrumHwBtn.classList.add('mode-toggle__btn--active');
+    spectrumEmuBtn.classList.remove('mode-toggle__btn--active');
+    spectrumHwControls.hidden = false;
+    spectrumHint.textContent = HARDWARE_HINT;
+
+    // Requesting a stream is what unlocks device labels; drop it immediately, the
+    // real connection happens when the user picks a device and hits Connect.
+    try {
+      const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+      probe.getTracks().forEach(t => t.stop());
+      await populateAudioInputs();
+    } catch {
+      spectrumHwStatus.textContent = 'Microphone/audio-input permission denied.';
+    }
+  });
+
+  spectrumHwConnectBtn.addEventListener('click', async () => {
+    const deviceId = spectrumHwSelect.value;
+    if (!deviceId) return;
+    spectrumHwStatus.textContent = 'Connecting...';
+    try {
+      await audioEngine.connectHardwareInput(deviceId);
+      spectrumHwStatus.textContent = 'Connected - showing real captured audio.';
+    } catch (err) {
+      spectrumHwStatus.textContent = `Could not open input: ${err.message || err}`;
+    }
   });
 }

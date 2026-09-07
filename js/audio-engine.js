@@ -1,4 +1,4 @@
-import { EFFECTS } from './effects.js';
+import { EFFECTS, cutoffToFreq } from './effects.js';
 import { appState } from './state.js';
 
 export class AudioEngine {
@@ -15,6 +15,12 @@ export class AudioEngine {
     this.baseParamValues = {}; // Store original param values for modulation
     this.lfo = null;
     this.lfoGain = null;
+
+    // Spectrum source: 'emulation' (the synthesized Tone.js chain) or 'hardware'
+    // (a real signal captured from an audio interface, e.g. the TING's actual output jack)
+    this.spectrumSource = 'emulation';
+    this.hwMic = null;
+    this.hwAnalyser = null;
   }
 
   // Clamp value to [0, 1] range to prevent Tone.js errors
@@ -33,7 +39,68 @@ export class AudioEngine {
       autostart: false
     });
 
+    // Live spectrum tap - does not affect the audible signal path
+    this.analyser = new Tone.Analyser('fft', 1024);
+    this.masterGain.connect(this.analyser);
+
     this.isInitialized = true;
+  }
+
+  // dB magnitude per FFT bin (Tone.Analyser default range), or null if not ready
+  getSpectrum() {
+    const analyser = this.spectrumSource === 'hardware' ? this.hwAnalyser : this.analyser;
+    if (!analyser) return null;
+    return analyser.getValue();
+  }
+
+  // List available audio input devices (labels only populate after mic permission is granted)
+  async listAudioInputs() {
+    return Tone.UserMedia.enumerateDevices();
+  }
+
+  // Capture a real audio input (e.g. an interface fed by the TING's output jack) for the
+  // spectrum view. Independent of the emulation chain - never touches this.masterGain.
+  async connectHardwareInput(deviceId) {
+    await this.init();
+    this.disconnectHardwareInput();
+
+    this.hwMic = new Tone.UserMedia();
+    await this.hwMic.open(deviceId);
+
+    this.hwAnalyser = new Tone.Analyser('fft', 1024);
+    this.hwMic.connect(this.hwAnalyser);
+    this.spectrumSource = 'hardware';
+  }
+
+  disconnectHardwareInput() {
+    if (this.hwMic) {
+      this.hwMic.close();
+      this.hwMic.dispose();
+      this.hwMic = null;
+    }
+    if (this.hwAnalyser) {
+      this.hwAnalyser.dispose();
+      this.hwAnalyser = null;
+    }
+  }
+
+  setSpectrumSource(source) {
+    this.spectrumSource = source;
+    if (source === 'emulation') this.disconnectHardwareInput();
+  }
+
+  // Live filter state (Hz/Q/gain) for filter-type nodes currently in the chain, so the
+  // spectrum view can draw their actual response curve. Read straight off the Tone.js
+  // nodes so it tracks modulation (handle/shake/LFO) in real time.
+  getFilterMarkers() {
+    return this.effectNodes
+      .filter(node => ['LOWPASS', 'HIGHPASS', 'EQUALIZER'].includes(node._tingType))
+      .map(node => ({
+        type: node._tingType,
+        freq: node.frequency.value,
+        Q: node.Q.value,
+        gainDb: node._tingType === 'EQUALIZER' ? node.gain.value : 0
+      }));
   }
 
   async loadSample(sampleType) {
@@ -64,9 +131,14 @@ export class AudioEngine {
 
   // Map cutoff 0-1 to frequency 20-20000Hz (logarithmic)
   cutoffToFreq(cutoff) {
-    const minFreq = 20;
-    const maxFreq = 20000;
-    return minFreq * Math.pow(maxFreq / minFreq, cutoff);
+    return cutoffToFreq(cutoff);
+  }
+
+  // Map firmware Q 0-1 to a BiquadFilter Q value 0.1-10 (logarithmic)
+  qToFilterQ(q) {
+    const minQ = 0.1;
+    const maxQ = 10;
+    return minQ * Math.pow(maxQ / minQ, this.clamp01(q));
   }
 
   createEffect(effectConfig) {
@@ -85,6 +157,7 @@ export class AudioEngine {
       case 'LOWPASS': {
         const freq = this.cutoffToFreq(effectConfig.cutoff ?? 0.5);
         node = new Tone.Filter(freq, 'lowpass');
+        node.Q.value = this.qToFilterQ(effectConfig.Q ?? 0.5);
         node._tingType = 'LOWPASS';
         break;
       }
@@ -92,7 +165,21 @@ export class AudioEngine {
       case 'HIGHPASS': {
         const freq = this.cutoffToFreq(effectConfig.cutoff ?? 0.5);
         node = new Tone.Filter(freq, 'highpass');
+        node.Q.value = this.qToFilterQ(effectConfig.Q ?? 0.5);
         node._tingType = 'HIGHPASS';
+        break;
+      }
+
+      case 'EQUALIZER': {
+        // Single peaking band: cutoff -> center freq, Q -> bandwidth, gain -> dB
+        const freq = this.cutoffToFreq(effectConfig.cutoff ?? 0.5);
+        const q = this.qToFilterQ(effectConfig.Q ?? 0.5);
+        const gainDb = (effectConfig.gain ?? 0) * 15; // +-1.0 -> +-15dB, matches typical peaking bands
+
+        node = new Tone.Filter(freq, 'peaking');
+        node.Q.value = q;
+        node.gain.value = gainDb;
+        node._tingType = 'EQUALIZER';
         break;
       }
 
@@ -131,7 +218,10 @@ export class AudioEngine {
         const feedback = effectConfig.echo ?? 0.5;
         const wet = effectConfig['wet-level'] ?? 0.5;
 
-        node = new Tone.FeedbackDelay(time, feedback);
+        // maxDelay fixed to the firmware's ceiling (1.1s) - otherwise Tone.js caps the
+        // internal buffer to the initial `time` value and throws once modulation nudges
+        // delayTime past it (e.g. an LFO on a 1.05s base delay).
+        node = new Tone.FeedbackDelay({ delayTime: time, feedback, maxDelay: 1.1 });
         node.wet.value = wet;
         node._tingType = 'DELAY';
         break;
@@ -279,7 +369,20 @@ export class AudioEngine {
         break;
       case 'LOWPASS':
       case 'HIGHPASS':
-        node.frequency.value = this.cutoffToFreq(value);
+        if (param === 'Q') {
+          node.Q.value = this.qToFilterQ(value);
+        } else {
+          node.frequency.value = this.cutoffToFreq(value);
+        }
+        break;
+      case 'EQUALIZER':
+        if (param === 'cutoff') {
+          node.frequency.value = this.cutoffToFreq(value);
+        } else if (param === 'Q') {
+          node.Q.value = this.qToFilterQ(value);
+        } else if (param === 'gain') {
+          node.gain.value = value * 15;
+        }
         break;
       case 'DIST':
         if (param === 'amount') {

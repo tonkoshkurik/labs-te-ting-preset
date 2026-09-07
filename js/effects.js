@@ -7,10 +7,23 @@ export const EFFECTS = {
     params: { balance: { min: 0, max: 1, default: 0.5 } }
   },
   LOWPASS: {
-    params: { cutoff: { min: 0, max: 1, default: 0.5 } }
+    params: {
+      cutoff: { min: 0, max: 1, default: 0.5 },
+      Q: { min: 0, max: 1, default: 0.5 }
+    }
   },
   HIGHPASS: {
-    params: { cutoff: { min: 0, max: 1, default: 0.5 } }
+    params: {
+      cutoff: { min: 0, max: 1, default: 0.5 },
+      Q: { min: 0, max: 1, default: 0.5 }
+    }
+  },
+  EQUALIZER: {
+    params: {
+      cutoff: { min: 0, max: 1, default: 0.5 },
+      Q: { min: 0, max: 1, default: 0.5 },
+      gain: { min: -1, max: 1, default: 0 }
+    }
   },
   DIST: {
     params: {
@@ -69,6 +82,42 @@ export const EFFECTS = {
 // Display name mapping
 export function getEffectDisplayName(effectName) {
   return effectName;
+}
+
+// Map a firmware 0-1 "cutoff" knob to an approximate frequency (log, 20Hz-20kHz).
+// NOTE: this curve is a common-sense guess, not reverse-engineered from the firmware -
+// TE's own README documents the [0,1] range but never states the underlying Hz mapping.
+// Use the live spectrum view (see spectrum.js) to see what a cutoff actually does to the signal.
+export function cutoffToFreq(cutoff) {
+  const minFreq = 20;
+  const maxFreq = 20000;
+  return minFreq * Math.pow(maxFreq / minFreq, cutoff);
+}
+
+function formatHz(hz) {
+  return hz >= 1000 ? `${(hz / 1000).toFixed(hz >= 10000 ? 0 : 1)}kHz` : `${Math.round(hz)}Hz`;
+}
+
+// A human-readable secondary readout for a param value, or null when the raw number
+// (already firmware units) needs no translation. Purely cosmetic - never affects export.
+export function formatParamHint(effectName, paramName, value) {
+  if ((effectName === 'LOWPASS' || effectName === 'HIGHPASS' || effectName === 'EQUALIZER') && paramName === 'cutoff') {
+    return `≈ ${formatHz(cutoffToFreq(value))}`;
+  }
+  if (effectName === 'DELAY' && paramName === 'time') {
+    return `${Math.round(value * 1000)}ms`;
+  }
+  if ((effectName === 'SSB' || effectName === 'RING') && paramName === 'frequency') {
+    return formatHz(Math.abs(value));
+  }
+  if (effectName === 'SAMPLE' && paramName === 'pitch') {
+    return `${value > 0 ? '+' : ''}${value.toFixed(1)}st`;
+  }
+  if (effectName === 'HARMONY' && paramName === 'pitch') {
+    const semitones = Math.log2(value) * 12;
+    return `${semitones > 0 ? '+' : ''}${semitones.toFixed(1)}st`;
+  }
+  return null;
 }
 
 // Create a default SAMPLE config

@@ -1,4 +1,4 @@
-import { EFFECTS, getEffectDisplayName, SINGLE_INSTANCE_EFFECTS } from './effects.js';
+import { EFFECTS, getEffectDisplayName, SINGLE_INSTANCE_EFFECTS, formatParamHint } from './effects.js';
 import { appState } from './state.js';
 import { audioEngine } from './audio-engine.js';
 import { saveState } from './storage.js';
@@ -26,10 +26,16 @@ export function renderEffectCard(effectConfig, index) {
         ? ((value - paramDef.min) / (paramDef.max - paramDef.min)) * 100
         : 0;
 
+      const hint = formatParamHint(effectConfig.effect, paramName, value);
+      const hintHtml = hint
+        ? `<span class="param-control__hint" id="hint-${index}-${paramName}">${hint}</span>`
+        : `<span class="param-control__hint" id="hint-${index}-${paramName}"></span>`;
+
       return `
         <div class="param-control">
           <div class="param-control__header">
             <span class="param-control__label">${paramName}</span>
+            ${hintHtml}
             <span class="param-control__value" id="value-${index}-${paramName}">${displayValue}</span>
           </div>
           <input
@@ -358,8 +364,10 @@ export function renderSamplesEditor() {
   appState.customSamples.forEach((sample, i) => {
     const fileInput = document.querySelector(`.sample-row__file[data-slot="${i}"]`);
     const playmodeSelect = document.querySelector(`.sample-row__playmode[data-slot="${i}"]`);
+    const duckInput = document.querySelector(`.sample-row__duck[data-slot="${i}"]`);
     if (fileInput) fileInput.value = sample.file;
     if (playmodeSelect) playmodeSelect.value = sample.playmode;
+    if (duckInput) duckInput.value = sample.duck || 0;
   });
 }
 

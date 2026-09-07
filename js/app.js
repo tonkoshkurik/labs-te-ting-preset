@@ -12,6 +12,7 @@ import {
   renderSamplesEditor
 } from './ui.js';
 import { tingUSB } from './webusb.js';
+import { startSpectrum } from './spectrum.js';
 
 // Expose tingUSB to window for console debugging
 window.tingUSB = tingUSB;
@@ -70,6 +71,8 @@ function init() {
   audioEngine.init().then(() => {
     audioEngine.loadSample(appState.selectedSample);
   });
+
+  startSpectrum();
 }
 
 // Start the app

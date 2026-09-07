@@ -176,6 +176,23 @@
         </div>
       </div>
 
+      <!-- Live spectrum -->
+      <div class="spectrum">
+        <div class="spectrum__toolbar">
+          <div class="mode-toggle">
+            <button class="mode-toggle__btn mode-toggle__btn--active" id="spectrumSourceEmulation" data-source="emulation">emulation</button>
+            <button class="mode-toggle__btn" id="spectrumSourceHardware" data-source="hardware">hardware in</button>
+          </div>
+          <div class="spectrum__hw-controls" id="spectrumHwControls" hidden>
+            <select class="select spectrum__hw-select" id="spectrumHwDeviceSelect" aria-label="Audio input device"></select>
+            <button class="btn" id="spectrumHwConnectBtn">Connect</button>
+            <span class="spectrum__hw-status" id="spectrumHwStatus"></span>
+          </div>
+        </div>
+        <canvas id="spectrumCanvas" class="spectrum__canvas" width="880" height="120"></canvas>
+        <div class="spectrum__hint" id="spectrumHint">orange fill = live output spectrum. colored curves = each filter/EQ's actual response (Q = bump width, gain = bump height). cutoff-to-Hz mapping is an estimate, not from the firmware.</div>
+      </div>
+
       <!-- Preset Meta -->
       <div class="preset-meta">
         <div class="form-group">
@@ -340,6 +357,7 @@
               <option value="hold">hold</option>
               <option value="startstop">startstop</option>
             </select>
+            <input type="number" class="input sample-row__duck" data-slot="0" min="0" max="1" step="0.05" placeholder="duck" aria-label="Sample 1 duck amount">
           </div>
           <div class="sample-row" data-slot="1">
             <span class="sample-row__slot">2</span>
@@ -349,6 +367,7 @@
               <option value="hold">hold</option>
               <option value="startstop">startstop</option>
             </select>
+            <input type="number" class="input sample-row__duck" data-slot="1" min="0" max="1" step="0.05" placeholder="duck" aria-label="Sample 2 duck amount">
           </div>
           <div class="sample-row" data-slot="2">
             <span class="sample-row__slot">3</span>
@@ -358,6 +377,7 @@
               <option value="hold">hold</option>
               <option value="startstop">startstop</option>
             </select>
+            <input type="number" class="input sample-row__duck" data-slot="2" min="0" max="1" step="0.05" placeholder="duck" aria-label="Sample 3 duck amount">
           </div>
           <div class="sample-row" data-slot="3">
             <span class="sample-row__slot">4</span>
@@ -367,6 +387,7 @@
               <option value="hold">hold</option>
               <option value="startstop">startstop</option>
             </select>
+            <input type="number" class="input sample-row__duck" data-slot="3" min="0" max="1" step="0.05" placeholder="duck" aria-label="Sample 4 duck amount">
           </div>
         </div>
       </div>

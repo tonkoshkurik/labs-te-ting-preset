@@ -9,10 +9,10 @@ export const PreviewMode = {
 // Default custom WAV samples structure (4 device sample slots)
 export function defaultCustomSamples() {
   return [
-    { file: '', playmode: 'oneshot' },
-    { file: '', playmode: 'oneshot' },
-    { file: '', playmode: 'oneshot' },
-    { file: '', playmode: 'oneshot' }
+    { file: '', playmode: 'oneshot', duck: 0 },
+    { file: '', playmode: 'oneshot', duck: 0 },
+    { file: '', playmode: 'oneshot', duck: 0 },
+    { file: '', playmode: 'oneshot', duck: 0 }
   ];
 }
 
@@ -62,7 +62,11 @@ export function applyCustomSamplesFromConfig(config) {
     arr.forEach((s, idx) => {
       const pos = s.pos !== undefined ? s.pos : idx;
       if (pos >= 0 && pos < 4) {
-        appState.customSamples[pos] = { file: s.file || '', playmode: s.playmode || 'oneshot' };
+        appState.customSamples[pos] = {
+          file: s.file || '',
+          playmode: s.playmode || s.type || 'oneshot',
+          duck: s.duck ?? 0
+        };
       }
     });
   } else {
@@ -74,7 +78,11 @@ export function applyCustomSamplesFromConfig(config) {
 export function customSamplesToConfig() {
   if (!appState.useCustomSamples) return null;
   const arr = appState.customSamples
-    .map((s, i) => ({ pos: i, file: s.file, playmode: s.playmode }))
+    .map((s, i) => {
+      const entry = { pos: i, file: s.file, playmode: s.playmode };
+      if (s.duck) entry.duck = s.duck;
+      return entry;
+    })
     .filter(s => s.file.trim() !== '');
   return arr.length > 0 ? arr : null;
 }
