@@ -3,7 +3,7 @@ import { appState, ensurePreset, PreviewMode, markDirty, markClean, defaultCusto
 import { audioEngine } from './audio-engine.js';
 import { saveState } from './storage.js';
 import { tingUSB, ConnectionState, TingUSB } from './webusb.js';
-import { runAllCalibrations } from './calibration.js';
+import { runAllCalibrations, captureAveragedSpectrum, estimateFreqForType } from './calibration.js';
 import {
   renderEffectList,
   renderPresetSlots,
@@ -1371,5 +1371,93 @@ export function setupEventListeners() {
     calibrationActions.hidden = true;
     calibrationTable.hidden = true;
     calibrationStatus.textContent = 'Discarded.';
+  });
+
+  // ---- Manual capture: snapshot the spectrum by hand while you switch presets on the
+  // device yourself (physical button, or a config.json you've already copied over via
+  // Finder). No serial connection needed - this can't destabilize the device. ----
+  const captureTypeSelect = document.getElementById('captureTypeSelect');
+  const captureCutoffInput = document.getElementById('captureCutoffInput');
+  const captureSnapshotBtn = document.getElementById('captureSnapshotBtn');
+  const captureStatus = document.getElementById('captureStatus');
+  const capturesTable = document.getElementById('capturesTable');
+  const capturesTableBody = document.getElementById('capturesTableBody');
+  const capturesActions = document.getElementById('capturesActions');
+  const capturesApplyBtn = document.getElementById('capturesApplyBtn');
+  const capturesClearBtn = document.getElementById('capturesClearBtn');
+
+  let captures = []; // { id, type, cutoff, freq }
+
+  captureTypeSelect.addEventListener('change', () => {
+    captureCutoffInput.disabled = captureTypeSelect.value === 'NONE';
+  });
+
+  function renderCaptures() {
+    capturesTableBody.innerHTML = captures.map(c => `
+      <tr>
+        <td>${c.type}</td>
+        <td>${c.type === 'NONE' ? '-' : c.cutoff.toFixed(2)}</td>
+        <td>${c.freq ? Math.round(c.freq) + 'Hz' : 'no reading'}</td>
+        <td><button class="btn" data-remove-capture="${c.id}">remove</button></td>
+      </tr>
+    `).join('');
+    capturesTable.hidden = captures.length === 0;
+    const applicable = captures.filter(c => c.type !== 'NONE' && c.freq);
+    capturesActions.hidden = applicable.length < 2;
+  }
+
+  capturesTableBody.addEventListener('click', (e) => {
+    const id = e.target.dataset.removeCapture;
+    if (!id) return;
+    captures = captures.filter(c => c.id !== id);
+    renderCaptures();
+  });
+
+  captureSnapshotBtn.addEventListener('click', async () => {
+    if (audioEngine.spectrumSource !== 'hardware') {
+      captureStatus.textContent = 'Connect a hardware audio input first (see "hardware in" above).';
+      return;
+    }
+
+    const type = captureTypeSelect.value;
+    const cutoff = parseFloat(captureCutoffInput.value) || 0;
+
+    captureSnapshotBtn.disabled = true;
+    captureStatus.textContent = 'Capturing...';
+    try {
+      const spectrum = await captureAveragedSpectrum(15, 40);
+      if (!spectrum) {
+        captureStatus.textContent = 'No signal captured - check the input connection.';
+        return;
+      }
+      const sampleRate = Tone.getContext().sampleRate;
+      const freq = type === 'NONE' ? null : estimateFreqForType(type, spectrum, sampleRate);
+
+      captures.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, type, cutoff, freq });
+      renderCaptures();
+      captureStatus.textContent = type === 'NONE'
+        ? 'Captured clean baseline.'
+        : `Captured ${type} at cutoff ${cutoff.toFixed(2)} -> ${freq ? Math.round(freq) + 'Hz' : 'no reading'}.`;
+    } finally {
+      captureSnapshotBtn.disabled = false;
+    }
+  });
+
+  capturesApplyBtn.addEventListener('click', () => {
+    const byType = {};
+    captures.filter(c => c.type !== 'NONE' && c.freq).forEach(c => {
+      (byType[c.type] = byType[c.type] || []).push({ cutoff: c.cutoff, freq: c.freq });
+    });
+    const appliedTypes = Object.keys(byType).filter(type => setCutoffCalibration(type, byType[type]));
+    captureStatus.textContent = appliedTypes.length
+      ? `Calibration applied for ${appliedTypes.join(', ')}.`
+      : 'Not enough points per type (need at least 2) to apply.';
+    if (appliedTypes.length) renderPresetEditor();
+  });
+
+  capturesClearBtn.addEventListener('click', () => {
+    captures = [];
+    renderCaptures();
+    captureStatus.textContent = 'Cleared.';
   });
 }

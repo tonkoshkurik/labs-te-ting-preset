@@ -537,6 +537,11 @@ a { color: var(--ink); transition: color var(--duration-fast) var(--ease-out); }
   color: var(--mid-gray);
 }
 
+.captures { display: flex; flex-direction: column; gap: var(--space-sm); margin-top: var(--space-sm); }
+.captures__row { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; }
+select.captures__type { width: auto; flex: 0 0 auto; min-width: 160px; }
+input.captures__cutoff { width: 90px; flex: 0 0 auto; }
+
 .preset-meta { display: flex; gap: var(--space-md); }
 
 .form-group { display: flex; flex-direction: column; gap: var(--space-sm); flex: 1 0 0; min-width: 0; }

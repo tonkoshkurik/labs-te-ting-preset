@@ -6,7 +6,7 @@ function sleep(ms) {
 
 // Average several FFT frames (dB) from whichever spectrum source is active, to smooth
 // out noise variance before measuring anything from it.
-async function captureAveragedSpectrum(frames = 10, intervalMs = 40) {
+export async function captureAveragedSpectrum(frames = 10, intervalMs = 40) {
   let sum = null;
   let n = 0;
   for (let i = 0; i < frames; i++) {
@@ -77,6 +77,15 @@ function estimatePeakHz(spectrum, sampleRate, loHz = 60, hiHz = 12000) {
 
 // Even coverage across the 0-1 range, denser near the ends where curves usually bend most.
 export const DEFAULT_TEST_VALUES = [0.05, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 0.98];
+
+// Estimate the measured frequency from one captured spectrum, for manual/offline analysis
+// (e.g. a spectrum captured by hand while physically switching device presets, rather than
+// through the live-serial automated sweep).
+export function estimateFreqForType(effectType, spectrum, sampleRate) {
+  if (effectType === 'LOWPASS') return estimateLowpassCutoffHz(spectrum, sampleRate);
+  if (effectType === 'HIGHPASS') return estimateHighpassCutoffHz(spectrum, sampleRate);
+  return estimatePeakHz(spectrum, sampleRate);
+}
 
 // Sweep one filter/EQ row's `cutoff` across DEFAULT_TEST_VALUES on the real, connected
 // hardware, measuring the actual resulting frequency from a captured audio input each time.

@@ -192,6 +192,31 @@
         </div>
         <canvas id="spectrumCanvas" class="spectrum__canvas" width="880" height="120"></canvas>
         <div class="spectrum__hint" id="spectrumHint">orange fill = live output spectrum. colored curves = each filter/EQ's actual response (Q = bump width, gain = bump height). cutoff-to-Hz mapping is an estimate, not from the firmware.</div>
+
+        <!-- Manual capture: switch presets on the device by hand (physical button, or a
+             config.json you've already copied over), tag what's active, snapshot the
+             spectrum. No serial connection involved - can't destabilize the device. -->
+        <div class="captures" id="capturesPanel">
+          <div class="captures__row">
+            <select class="select captures__type" id="captureTypeSelect">
+              <option value="NONE">clean / no fx</option>
+              <option value="LOWPASS">LOWPASS</option>
+              <option value="HIGHPASS">HIGHPASS</option>
+              <option value="EQUALIZER">EQUALIZER</option>
+            </select>
+            <input type="number" class="input captures__cutoff" id="captureCutoffInput" min="0" max="1" step="0.01" value="0.5" placeholder="cutoff">
+            <button class="btn btn--add" id="captureSnapshotBtn">Capture snapshot</button>
+            <span class="spectrum__hw-status" id="captureStatus"></span>
+          </div>
+          <table class="calibration-table" id="capturesTable" hidden>
+            <thead><tr><th>type</th><th>cutoff</th><th>measured</th><th></th></tr></thead>
+            <tbody id="capturesTableBody"></tbody>
+          </table>
+          <div class="calibration-actions" id="capturesActions" hidden>
+            <button class="btn btn--add" id="capturesApplyBtn">Apply calibration from captures</button>
+            <button class="btn" id="capturesClearBtn">Clear all</button>
+          </div>
+        </div>
       </div>
 
       <!-- Preset Meta -->
@@ -429,12 +454,18 @@
         <button class="modal__close-btn" id="calibrationModalClose" aria-label="Close">&times;</button>
         <h3 class="modal__title">Calibrate cutoff &rarr; Hz</h3>
         <p class="modal__message">
-          Fully automatic: reads whatever's currently on the device, temporarily swaps in a
-          minimal LOWPASS/HIGHPASS/EQUALIZER test preset on the scratch slot below, sweeps and
+          <strong>Known to be unstable</strong> - the live config.json upload this performs has
+          caused the device to become unresponsive and require a reconnect. Prefer the manual
+          "Captures" panel under the spectrum instead: copy a test config.json to TINGDISK
+          yourself, switch presets with the physical button, and capture each one from the
+          browser - no serial writes involved, so it can't destabilize the device.
+        </p>
+        <p class="modal__message">
+          This automatic version: reads whatever's currently on the device, temporarily swaps in
+          a minimal LOWPASS/HIGHPASS/EQUALIZER test preset on the scratch slot below, sweeps and
           measures each from your connected audio input, then restores your original presets
-          exactly as they were. Requires: device connected (LIVE), hardware audio input
-          connected, and continuous broadband noise already reaching the TING's mic.
-          <strong>Don't disconnect mid-run</strong> - your presets are only restored when it finishes.
+          exactly as they were. <strong>Don't disconnect mid-run</strong> - your presets are only
+          restored when it finishes, and won't be if the connection drops first.
         </p>
 
         <div class="form-group">
