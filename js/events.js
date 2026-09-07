@@ -3,7 +3,7 @@ import { appState, ensurePreset, PreviewMode, markDirty, markClean, defaultCusto
 import { audioEngine } from './audio-engine.js';
 import { saveState } from './storage.js';
 import { tingUSB, ConnectionState, TingUSB } from './webusb.js';
-import { runCutoffCalibration } from './calibration.js';
+import { runAllCalibrations } from './calibration.js';
 import {
   renderEffectList,
   renderPresetSlots,
@@ -1260,8 +1260,10 @@ export function setupEventListeners() {
   });
 
   // ---- Cutoff calibration wizard ----
-  const CALIBRATABLE_EFFECTS = ['LOWPASS', 'HIGHPASS', 'EQUALIZER'];
-  const calibrationRowSelect = document.getElementById('calibrationRowSelect');
+  // Fully automatic: backs up the device's config.json, temporarily runs a minimal test
+  // preset per effect type on a scratch slot, sweeps and measures each, then restores the
+  // original config. No manual preset prep needed - see js/calibration.js.
+  const calibrationSlotSelect = document.getElementById('calibrationSlotSelect');
   const calibrationRunBtn = document.getElementById('calibrationRunBtn');
   const calibrationStatus = document.getElementById('calibrationStatus');
   const calibrationProgressBar = document.getElementById('calibrationProgressBar');
@@ -1272,35 +1274,24 @@ export function setupEventListeners() {
   const calibrationApplyBtn = document.getElementById('calibrationApplyBtn');
   const calibrationDiscardBtn = document.getElementById('calibrationDiscardBtn');
 
-  let lastCalibrationResults = null;
-  let lastCalibrationEffectType = null;
+  let lastCalibrationResultsByType = null;
 
-  function populateCalibrationRows() {
-    const preset = appState.presets[appState.selectedSlot];
-    const rows = (preset?.list || [])
-      .map((effect, index) => ({ effect, index }))
-      .filter(({ effect }) => CALIBRATABLE_EFFECTS.includes(effect.effect));
-
-    calibrationRowSelect.innerHTML = rows.length
-      ? rows.map(({ effect, index }) => `<option value="${index}">row ${index} - ${effect.effect}</option>`).join('')
-      : '<option value="">No LOWPASS/HIGHPASS/EQUALIZER row in this preset</option>';
-  }
-
-  document.getElementById('openCalibrationBtn').addEventListener('click', () => {
-    populateCalibrationRows();
+  function resetCalibrationModal() {
     calibrationTable.hidden = true;
     calibrationActions.hidden = true;
     calibrationProgressBar.hidden = true;
     calibrationStatus.textContent = '';
+  }
+
+  document.getElementById('openCalibrationBtn').addEventListener('click', () => {
+    calibrationSlotSelect.value = String(appState.selectedSlot);
+    resetCalibrationModal();
     openCalibrationModal();
   });
   document.getElementById('calibrationModalClose').addEventListener('click', closeCalibrationModal);
   document.getElementById('calibrationModalBackdrop').addEventListener('click', closeCalibrationModal);
 
   calibrationRunBtn.addEventListener('click', async () => {
-    const index = parseInt(calibrationRowSelect.value);
-    if (isNaN(index)) return;
-
     if (tingUSB.state !== ConnectionState.CONNECTED) {
       calibrationStatus.textContent = 'Connect the device (LIVE mode) first.';
       return;
@@ -1310,69 +1301,73 @@ export function setupEventListeners() {
       return;
     }
 
-    const preset = appState.presets[appState.selectedSlot];
-    const effectConfig = preset.list[index];
-    const effectType = effectConfig.effect;
-    const row = effectConfig._row !== undefined ? effectConfig._row : index;
-    const slot = appState.selectedSlot;
+    const slot = parseInt(calibrationSlotSelect.value);
 
     calibrationRunBtn.disabled = true;
+    calibrationSlotSelect.disabled = true;
     calibrationTable.hidden = true;
     calibrationActions.hidden = true;
     calibrationProgressBar.hidden = false;
     calibrationTableBody.innerHTML = '';
 
     try {
-      const results = await runCutoffCalibration({
-        tingUSB, slot, row, effectType,
-        onProgress: ({ step, total, cutoff, freq, phase }) => {
-          calibrationProgressFill.style.width = `${((step + (phase === 'done' ? 1 : 0.5)) / total) * 100}%`;
-          calibrationStatus.textContent = phase === 'measuring'
-            ? `Measuring cutoff ${cutoff.toFixed(2)}...`
-            : phase === 'done'
-              ? `cutoff ${cutoff.toFixed(2)} -> ${freq ? Math.round(freq) + 'Hz' : 'no reading'}`
-              : `Setting cutoff ${cutoff.toFixed(2)}...`;
+      const resultsByType = await runAllCalibrations({
+        tingUSB, slot,
+        onProgress: ({ phase, effectType, step, total, cutoff, freq }) => {
+          if (phase === 'backup') calibrationStatus.textContent = 'Backing up current device config...';
+          else if (phase === 'restoring') calibrationStatus.textContent = 'Restoring your original presets...';
+          else if (phase === 'uploading') calibrationStatus.textContent = `Uploading ${effectType} test preset...`;
+          else if (typeof step === 'number') {
+            const typeIndex = ['LOWPASS', 'HIGHPASS', 'EQUALIZER'].indexOf(effectType);
+            const overall = (typeIndex * total + step + (phase === 'done' ? 1 : 0.5)) / (total * 3);
+            calibrationProgressFill.style.width = `${overall * 100}%`;
+            calibrationStatus.textContent = phase === 'measuring'
+              ? `${effectType}: measuring cutoff ${cutoff.toFixed(2)}...`
+              : phase === 'done'
+                ? `${effectType}: cutoff ${cutoff.toFixed(2)} -> ${freq ? Math.round(freq) + 'Hz' : 'no reading'}`
+                : `${effectType}: setting cutoff ${cutoff.toFixed(2)}...`;
+          }
         }
       });
 
-      lastCalibrationResults = results;
-      lastCalibrationEffectType = effectType;
+      lastCalibrationResultsByType = resultsByType;
 
-      calibrationTableBody.innerHTML = results.map(r =>
-        `<tr><td>${r.cutoff.toFixed(2)}</td><td>${r.freq ? Math.round(r.freq) + 'Hz' : '-'}</td></tr>`
+      calibrationTableBody.innerHTML = Object.entries(resultsByType).flatMap(([type, results]) =>
+        results.map(r => `<tr><td>${type}</td><td>${r.cutoff.toFixed(2)}</td><td>${r.freq ? Math.round(r.freq) + 'Hz' : '-'}</td></tr>`)
       ).join('');
       calibrationTable.hidden = false;
 
-      const validCount = results.filter(r => r.freq).length;
-      if (validCount >= 2) {
-        calibrationStatus.textContent = `Done - ${validCount}/${results.length} points measured.`;
-        calibrationActions.hidden = false;
-      } else {
-        calibrationStatus.textContent = 'Not enough valid readings to build a curve - check the noise source and connections, then try again.';
-      }
+      const validCounts = Object.entries(resultsByType).map(([type, results]) => [type, results.filter(r => r.freq).length]);
+      const anyValid = validCounts.some(([, count]) => count >= 2);
+      calibrationStatus.textContent = anyValid
+        ? `Done - ${validCounts.map(([t, c]) => `${t}: ${c}/8`).join(', ')}. Your original presets have been restored.`
+        : 'Not enough valid readings on any type - check the noise source and connections, then try again.';
+      calibrationActions.hidden = !anyValid;
     } catch (err) {
-      calibrationStatus.textContent = `Calibration failed: ${err.message || err}`;
+      calibrationStatus.textContent = `Calibration failed: ${err.message || err}. Attempting to restore your presets...`;
     } finally {
       calibrationRunBtn.disabled = false;
+      calibrationSlotSelect.disabled = false;
       calibrationProgressBar.hidden = true;
     }
   });
 
   calibrationApplyBtn.addEventListener('click', () => {
-    if (!lastCalibrationResults || !lastCalibrationEffectType) return;
-    const ok = setCutoffCalibration(lastCalibrationEffectType, lastCalibrationResults);
-    calibrationStatus.textContent = ok
-      ? `Calibration applied for ${lastCalibrationEffectType}. Hz readouts now reflect real hardware measurements.`
-      : 'Could not apply - not enough valid points.';
-    if (ok) {
+    if (!lastCalibrationResultsByType) return;
+    const appliedTypes = Object.keys(lastCalibrationResultsByType).filter(type =>
+      setCutoffCalibration(type, lastCalibrationResultsByType[type])
+    );
+    calibrationStatus.textContent = appliedTypes.length
+      ? `Calibration applied for ${appliedTypes.join(', ')}. Hz readouts now reflect real hardware measurements.`
+      : 'Could not apply - not enough valid points for any type.';
+    if (appliedTypes.length) {
       calibrationActions.hidden = true;
       renderPresetEditor(); // refresh Hz hints across the editor
     }
   });
 
   calibrationDiscardBtn.addEventListener('click', () => {
-    lastCalibrationResults = null;
-    lastCalibrationEffectType = null;
+    lastCalibrationResultsByType = null;
     calibrationActions.hidden = true;
     calibrationTable.hidden = true;
     calibrationStatus.textContent = 'Discarded.';

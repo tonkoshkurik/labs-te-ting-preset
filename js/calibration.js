@@ -121,3 +121,62 @@ export async function runCutoffCalibration({ tingUSB, slot, row, effectType, tes
 
   return results;
 }
+
+// Build a minimal single-effect test preset: [effectType, SAMPLE]. Isolates the filter
+// under test from reverb tails, delay repeats, pitch shifting etc. that would otherwise
+// pollute the measured spectrum. SAMPLE is a required marker and runs parallel to the
+// mic path, so it doesn't affect the measurement.
+function buildScratchPreset(effectType) {
+  const row = { effect: effectType, cutoff: 0.5, Q: 0.5 };
+  if (effectType === 'EQUALIZER') row.gain = 0;
+  return { name: `CAL ${effectType}`, list: [row, { effect: 'SAMPLE', speed: 1.0, level: 0.8 }] };
+}
+
+// Return a deep-cloned config with `preset` installed at `pos`, replacing whatever was
+// there (handle/shake/lfo/trigger deliberately omitted so nothing modulates mid-sweep).
+function withSlotPreset(config, pos, preset) {
+  const next = JSON.parse(JSON.stringify(config || { presets: [] }));
+  next.presets = (next.presets || []).filter(p => p.pos !== pos);
+  next.presets.push({ ...preset, pos });
+  return next;
+}
+
+// Fully automated calibration: reads the device's current config.json, temporarily
+// replaces one slot with a minimal test preset per effect type, sweeps and measures each,
+// then restores the original config exactly as it was - regardless of what was on that
+// slot beforehand. No manual preset prep required.
+//
+// `slot` is used purely as scratch space for the duration of the run; it is always
+// restored in a `finally` block, including if a step throws or the sweep is interrupted.
+export async function runAllCalibrations({
+  tingUSB,
+  slot,
+  effectTypes = ['LOWPASS', 'HIGHPASS', 'EQUALIZER'],
+  testValues = DEFAULT_TEST_VALUES,
+  onProgress
+}) {
+  onProgress?.({ phase: 'backup' });
+  const originalConfig = await tingUSB.readConfigJson();
+  const resultsByType = {};
+
+  try {
+    for (const effectType of effectTypes) {
+      onProgress?.({ phase: 'uploading', effectType });
+      const testConfig = withSlotPreset(originalConfig, slot, buildScratchPreset(effectType));
+      await tingUSB.writeConfigJson(testConfig, (current, total, status) =>
+        onProgress?.({ phase: 'uploading', effectType, current, total, status }));
+
+      resultsByType[effectType] = await runCutoffCalibration({
+        tingUSB, slot, row: 0, effectType, testValues,
+        onProgress: p => onProgress?.({ ...p, effectType })
+      });
+    }
+  } finally {
+    onProgress?.({ phase: 'restoring' });
+    await tingUSB.writeConfigJson(originalConfig, (current, total, status) =>
+      onProgress?.({ phase: 'restoring', current, total, status }));
+    await tingUSB.selectSlot(slot);
+  }
+
+  return resultsByType;
+}

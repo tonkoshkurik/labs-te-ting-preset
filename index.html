@@ -429,17 +429,25 @@
         <button class="modal__close-btn" id="calibrationModalClose" aria-label="Close">&times;</button>
         <h3 class="modal__title">Calibrate cutoff &rarr; Hz</h3>
         <p class="modal__message">
-          Sweeps a filter/EQ row's cutoff on the real device and measures the actual resulting
-          frequency from your connected audio input. Requires: device connected (LIVE), hardware
-          audio input connected, and continuous broadband noise already reaching the TING's mic.
+          Fully automatic: reads whatever's currently on the device, temporarily swaps in a
+          minimal LOWPASS/HIGHPASS/EQUALIZER test preset on the scratch slot below, sweeps and
+          measures each from your connected audio input, then restores your original presets
+          exactly as they were. Requires: device connected (LIVE), hardware audio input
+          connected, and continuous broadband noise already reaching the TING's mic.
+          <strong>Don't disconnect mid-run</strong> - your presets are only restored when it finishes.
         </p>
 
         <div class="form-group">
-          <label for="calibrationRowSelect">Row to calibrate</label>
-          <select class="select" id="calibrationRowSelect"></select>
+          <label for="calibrationSlotSelect">Scratch slot (temporarily overwritten, then restored)</label>
+          <select class="select" id="calibrationSlotSelect">
+            <option value="0">slot 1</option>
+            <option value="1">slot 2</option>
+            <option value="2">slot 3</option>
+            <option value="3">slot 4</option>
+          </select>
         </div>
 
-        <button class="btn btn--add" id="calibrationRunBtn">Run calibration</button>
+        <button class="btn btn--add" id="calibrationRunBtn">Run full calibration (LOWPASS, HIGHPASS, EQUALIZER)</button>
 
         <div class="progress-bar" id="calibrationProgressBar" hidden>
           <div class="progress-bar__fill" id="calibrationProgressFill"></div>
@@ -447,7 +455,7 @@
         <p class="modal__status" id="calibrationStatus"></p>
 
         <table class="calibration-table" id="calibrationTable" hidden>
-          <thead><tr><th>cutoff</th><th>measured</th></tr></thead>
+          <thead><tr><th>type</th><th>cutoff</th><th>measured</th></tr></thead>
           <tbody id="calibrationTableBody"></tbody>
         </table>
 
