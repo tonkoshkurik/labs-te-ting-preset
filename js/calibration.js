@@ -81,10 +81,22 @@ export const DEFAULT_TEST_VALUES = [0.05, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 0.98]
 // Estimate the measured frequency from one captured spectrum, for manual/offline analysis
 // (e.g. a spectrum captured by hand while physically switching device presets, rather than
 // through the live-serial automated sweep).
+//
+// A sharp/high-Q filter turns its cutoff/center into a clear resonant peak for all three
+// types (LOWPASS and HIGHPASS resonate right at cutoff, same as EQUALIZER's boosted band) -
+// peak-finding locates that precisely. The manual capture test presets (calibration-*.json)
+// are deliberately built with high Q for exactly this reason. Falls back to a -3dB threshold
+// scan only if no meaningful peak stands out (e.g. a low-Q filter was used instead).
 export function estimateFreqForType(effectType, spectrum, sampleRate) {
+  const peak = estimatePeakHz(spectrum, sampleRate);
+  const peakDb = peak ? dbAt(peak, spectrum, sampleRate) : -Infinity;
+  const floorDb = avgDb(60, 12000, spectrum, sampleRate);
+  const hasSharpPeak = peak && (peakDb - floorDb) > 4; // meaningfully above the average level
+  if (hasSharpPeak) return peak;
+
   if (effectType === 'LOWPASS') return estimateLowpassCutoffHz(spectrum, sampleRate);
   if (effectType === 'HIGHPASS') return estimateHighpassCutoffHz(spectrum, sampleRate);
-  return estimatePeakHz(spectrum, sampleRate);
+  return peak;
 }
 
 // Sweep one filter/EQ row's `cutoff` across DEFAULT_TEST_VALUES on the real, connected
@@ -98,10 +110,12 @@ export async function runCutoffCalibration({ tingUSB, slot, row, effectType, tes
   await tingUSB.selectSlot(slot);
   await sleep(200);
 
-  // EQUALIZER needs a strong, unambiguous boost to locate the peak against noise
+  // A sharp/high-Q filter turns cutoff into a clear resonant peak (LOWPASS/HIGHPASS) or an
+  // unambiguous boosted band (EQUALIZER) - much easier to locate precisely than a gentle
+  // -3dB knee. Force that regardless of whatever Q the scratch preset started with.
+  await tingUSB.setParam(slot, row, 'Q', effectType === 'EQUALIZER' ? 0.6 : 0.85);
+  await sleep(150);
   if (effectType === 'EQUALIZER') {
-    await tingUSB.setParam(slot, row, 'Q', 0.6);
-    await sleep(150);
     await tingUSB.setParam(slot, row, 'gain', 1.0);
     await sleep(150);
   }
@@ -119,10 +133,7 @@ export async function runCutoffCalibration({ tingUSB, slot, row, effectType, tes
       continue;
     }
 
-    let freq;
-    if (effectType === 'LOWPASS') freq = estimateLowpassCutoffHz(spectrum, sampleRate);
-    else if (effectType === 'HIGHPASS') freq = estimateHighpassCutoffHz(spectrum, sampleRate);
-    else freq = estimatePeakHz(spectrum, sampleRate);
+    const freq = estimateFreqForType(effectType, spectrum, sampleRate);
 
     results.push({ cutoff, freq });
     onProgress?.({ step: i, total: testValues.length, cutoff, freq, phase: 'done' });

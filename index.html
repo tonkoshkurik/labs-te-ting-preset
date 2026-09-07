@@ -198,18 +198,20 @@
              spectrum. No serial connection involved - can't destabilize the device. -->
         <div class="captures" id="capturesPanel">
           <div class="captures__row">
-            <select class="select captures__type" id="captureTypeSelect">
-              <option value="NONE">clean / no fx</option>
-              <option value="LOWPASS">LOWPASS</option>
-              <option value="HIGHPASS">HIGHPASS</option>
-              <option value="EQUALIZER">EQUALIZER</option>
-            </select>
-            <input type="number" class="input captures__cutoff" id="captureCutoffInput" min="0" max="1" step="0.01" value="0.5" placeholder="cutoff">
+            <label class="captures__clean-toggle">
+              <input type="checkbox" id="captureCleanToggle">
+              clean / no fx (the physical bypass button - not a config slot)
+            </label>
+          </div>
+          <div class="captures__row">
+            <span class="spectrum__hw-status" id="captureSyncInfo">select the preset slot matching what's physically active on the device</span>
+          </div>
+          <div class="captures__row">
             <button class="btn btn--add" id="captureSnapshotBtn">Capture snapshot</button>
             <span class="spectrum__hw-status" id="captureStatus"></span>
           </div>
           <table class="calibration-table" id="capturesTable" hidden>
-            <thead><tr><th>type</th><th>cutoff</th><th>measured</th><th></th></tr></thead>
+            <thead><tr><th>type</th><th>cutoff</th><th>Q</th><th>gain</th><th>measured</th><th></th></tr></thead>
             <tbody id="capturesTableBody"></tbody>
           </table>
           <div class="calibration-actions" id="capturesActions" hidden>

@@ -1375,9 +1375,14 @@ export function setupEventListeners() {
 
   // ---- Manual capture: snapshot the spectrum by hand while you switch presets on the
   // device yourself (physical button, or a config.json you've already copied over via
-  // Finder). No serial connection needed - this can't destabilize the device. ----
-  const captureTypeSelect = document.getElementById('captureTypeSelect');
-  const captureCutoffInput = document.getElementById('captureCutoffInput');
+  // Finder). No serial connection needed - this can't destabilize the device.
+  //
+  // Rather than re-typing what's on the device, this reads type/cutoff/Q/gain straight off
+  // whichever preset slot is currently selected in the editor - so keep that selection in
+  // sync with whatever's physically active on the device as you switch presets by hand.
+  const CALIBRATABLE_EFFECTS = ['LOWPASS', 'HIGHPASS', 'EQUALIZER'];
+  const captureCleanToggle = document.getElementById('captureCleanToggle');
+  const captureSyncInfo = document.getElementById('captureSyncInfo');
   const captureSnapshotBtn = document.getElementById('captureSnapshotBtn');
   const captureStatus = document.getElementById('captureStatus');
   const capturesTable = document.getElementById('capturesTable');
@@ -1386,17 +1391,41 @@ export function setupEventListeners() {
   const capturesApplyBtn = document.getElementById('capturesApplyBtn');
   const capturesClearBtn = document.getElementById('capturesClearBtn');
 
-  let captures = []; // { id, type, cutoff, freq }
+  let captures = []; // { id, type, cutoff, Q, gain, freq }
 
-  captureTypeSelect.addEventListener('change', () => {
-    captureCutoffInput.disabled = captureTypeSelect.value === 'NONE';
-  });
+  // Find the first LOWPASS/HIGHPASS/EQUALIZER row in whatever preset slot is currently
+  // selected in the editor - the "rich, accurate" source of truth for what's being tested.
+  function detectSelectedPresetFilter() {
+    const preset = appState.presets[appState.selectedSlot];
+    const row = (preset?.list || []).find(effect => CALIBRATABLE_EFFECTS.includes(effect.effect));
+    if (!row) return null;
+    return { type: row.effect, cutoff: row.cutoff ?? 0.5, Q: row.Q ?? 0.5, gain: row.gain ?? 0 };
+  }
+
+  function refreshCaptureSync() {
+    if (captureCleanToggle.checked) {
+      captureSyncInfo.textContent = 'Will capture as: clean / no fx baseline.';
+      return;
+    }
+    const detected = detectSelectedPresetFilter();
+    captureSyncInfo.textContent = detected
+      ? `Reading from slot ${appState.selectedSlot + 1}: ${detected.type} cutoff=${detected.cutoff.toFixed(2)} Q=${detected.Q.toFixed(2)}${detected.type === 'EQUALIZER' ? ` gain=${detected.gain.toFixed(2)}` : ''}`
+      : `Slot ${appState.selectedSlot + 1} has no LOWPASS/HIGHPASS/EQUALIZER row - select the matching preset, or check "clean / no fx".`;
+  }
+  // Preset selection, param edits, and effect add/remove can all change what slot N shows;
+  // a light poll is simpler and more robust than hooking every place that mutates appState.
+  setInterval(refreshCaptureSync, 500);
+  refreshCaptureSync();
+
+  captureCleanToggle.addEventListener('change', refreshCaptureSync);
 
   function renderCaptures() {
     capturesTableBody.innerHTML = captures.map(c => `
       <tr>
         <td>${c.type}</td>
         <td>${c.type === 'NONE' ? '-' : c.cutoff.toFixed(2)}</td>
+        <td>${c.type === 'NONE' ? '-' : c.Q.toFixed(2)}</td>
+        <td>${c.type === 'EQUALIZER' ? c.gain.toFixed(2) : '-'}</td>
         <td>${c.freq ? Math.round(c.freq) + 'Hz' : 'no reading'}</td>
         <td><button class="btn" data-remove-capture="${c.id}">remove</button></td>
       </tr>
@@ -1419,8 +1448,13 @@ export function setupEventListeners() {
       return;
     }
 
-    const type = captureTypeSelect.value;
-    const cutoff = parseFloat(captureCutoffInput.value) || 0;
+    const isClean = captureCleanToggle.checked;
+    const detected = isClean ? null : detectSelectedPresetFilter();
+    if (!isClean && !detected) {
+      captureStatus.textContent = 'No LOWPASS/HIGHPASS/EQUALIZER row in the selected preset - select the right slot, or check "clean / no fx".';
+      return;
+    }
+    const { type, cutoff, Q, gain } = isClean ? { type: 'NONE', cutoff: 0, Q: 0, gain: 0 } : detected;
 
     captureSnapshotBtn.disabled = true;
     captureStatus.textContent = 'Capturing...';
@@ -1433,11 +1467,11 @@ export function setupEventListeners() {
       const sampleRate = Tone.getContext().sampleRate;
       const freq = type === 'NONE' ? null : estimateFreqForType(type, spectrum, sampleRate);
 
-      captures.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, type, cutoff, freq });
+      captures.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, type, cutoff, Q, gain, freq });
       renderCaptures();
       captureStatus.textContent = type === 'NONE'
         ? 'Captured clean baseline.'
-        : `Captured ${type} at cutoff ${cutoff.toFixed(2)} -> ${freq ? Math.round(freq) + 'Hz' : 'no reading'}.`;
+        : `Captured ${type} at cutoff ${cutoff.toFixed(2)} (Q ${Q.toFixed(2)}) -> ${freq ? Math.round(freq) + 'Hz' : 'no reading'}.`;
     } finally {
       captureSnapshotBtn.disabled = false;
     }

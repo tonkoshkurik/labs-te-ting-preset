@@ -541,6 +541,14 @@ a { color: var(--ink); transition: color var(--duration-fast) var(--ease-out); }
 .captures__row { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; }
 select.captures__type { width: auto; flex: 0 0 auto; min-width: 160px; }
 input.captures__cutoff { width: 90px; flex: 0 0 auto; }
+.captures__clean-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  cursor: pointer;
+}
 
 .preset-meta { display: flex; gap: var(--space-md); }
 

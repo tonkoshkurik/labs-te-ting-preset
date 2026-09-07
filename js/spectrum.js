@@ -86,8 +86,28 @@ export function startSpectrum() {
   const ctx = canvas.getContext('2d');
 
   const draw = () => {
-    const { width, height } = canvas;
-    ctx.clearRect(0, 0, width, height);
+    // Any uncaught throw in here previously killed the rAF chain permanently with zero
+    // visible indication - the canvas would just silently stop updating. Guard so a bad
+    // frame is skipped (logged) instead of ending the whole live view.
+    try {
+      drawFrame(canvas, ctx);
+    } catch (err) {
+      console.error('[spectrum] draw error:', err);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#ff6b6b';
+      ctx.font = '11px Inter, sans-serif';
+      ctx.fillText('spectrum error - see console', 8, 16);
+    }
+    rafId = requestAnimationFrame(draw);
+  };
+
+  if (rafId) cancelAnimationFrame(rafId);
+  draw();
+}
+
+function drawFrame(canvas, ctx) {
+  const { width, height } = canvas;
+  ctx.clearRect(0, 0, width, height);
 
     // Octave gridlines for reference (100, 1k, 10k)
     ctx.strokeStyle = 'rgba(255,255,255,0.08)';
@@ -167,12 +187,6 @@ export function startSpectrum() {
         ctx.fillText(`${type} ${freqLabel}Hz Q${Q.toFixed(1)}`, Math.min(labelX + 3, width - 130), Math.max(10, labelY - 3));
       });
     }
-
-    rafId = requestAnimationFrame(draw);
-  };
-
-  if (rafId) cancelAnimationFrame(rafId);
-  draw();
 }
 
 export function stopSpectrum() {
