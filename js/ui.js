@@ -389,6 +389,14 @@ export function closeHelpModal() {
   document.getElementById('helpModal').classList.remove('modal--open');
 }
 
+export function openCalibrationModal() {
+  document.getElementById('calibrationModal').classList.add('modal--open');
+}
+
+export function closeCalibrationModal() {
+  document.getElementById('calibrationModal').classList.remove('modal--open');
+}
+
 // Toast notifications
 export function showToast(message, type = 'info') {
   const existing = document.querySelector('.toast');

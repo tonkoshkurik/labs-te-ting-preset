@@ -129,9 +129,10 @@ export class AudioEngine {
     this.effectChain = [];
   }
 
-  // Map cutoff 0-1 to frequency 20-20000Hz (logarithmic)
-  cutoffToFreq(cutoff) {
-    return cutoffToFreq(cutoff);
+  // Map cutoff 0-1 to frequency 20-20000Hz (logarithmic), using a real calibration
+  // curve for this effect type when the calibration wizard has measured one.
+  cutoffToFreq(cutoff, type) {
+    return cutoffToFreq(cutoff, type);
   }
 
   // Map firmware Q 0-1 to a BiquadFilter Q value 0.1-10 (logarithmic)
@@ -155,7 +156,7 @@ export class AudioEngine {
       }
 
       case 'LOWPASS': {
-        const freq = this.cutoffToFreq(effectConfig.cutoff ?? 0.5);
+        const freq = this.cutoffToFreq(effectConfig.cutoff ?? 0.5, 'LOWPASS');
         node = new Tone.Filter(freq, 'lowpass');
         node.Q.value = this.qToFilterQ(effectConfig.Q ?? 0.5);
         node._tingType = 'LOWPASS';
@@ -163,7 +164,7 @@ export class AudioEngine {
       }
 
       case 'HIGHPASS': {
-        const freq = this.cutoffToFreq(effectConfig.cutoff ?? 0.5);
+        const freq = this.cutoffToFreq(effectConfig.cutoff ?? 0.5, 'HIGHPASS');
         node = new Tone.Filter(freq, 'highpass');
         node.Q.value = this.qToFilterQ(effectConfig.Q ?? 0.5);
         node._tingType = 'HIGHPASS';
@@ -172,7 +173,7 @@ export class AudioEngine {
 
       case 'EQUALIZER': {
         // Single peaking band: cutoff -> center freq, Q -> bandwidth, gain -> dB
-        const freq = this.cutoffToFreq(effectConfig.cutoff ?? 0.5);
+        const freq = this.cutoffToFreq(effectConfig.cutoff ?? 0.5, 'EQUALIZER');
         const q = this.qToFilterQ(effectConfig.Q ?? 0.5);
         const gainDb = (effectConfig.gain ?? 0) * 15; // +-1.0 -> +-15dB, matches typical peaking bands
 
@@ -192,11 +193,11 @@ export class AudioEngine {
         distortion.wet.value = mix;
 
         const lowpass = new Tone.Filter(
-          this.cutoffToFreq(effectConfig['lowpass-cutoff'] ?? 1),
+          this.cutoffToFreq(effectConfig['lowpass-cutoff'] ?? 1, 'LOWPASS'),
           'lowpass'
         );
         const highpass = new Tone.Filter(
-          this.cutoffToFreq(effectConfig['highpass-cutoff'] ?? 0),
+          this.cutoffToFreq(effectConfig['highpass-cutoff'] ?? 0, 'HIGHPASS'),
           'highpass'
         );
 
@@ -372,12 +373,12 @@ export class AudioEngine {
         if (param === 'Q') {
           node.Q.value = this.qToFilterQ(value);
         } else {
-          node.frequency.value = this.cutoffToFreq(value);
+          node.frequency.value = this.cutoffToFreq(value, node._tingType);
         }
         break;
       case 'EQUALIZER':
         if (param === 'cutoff') {
-          node.frequency.value = this.cutoffToFreq(value);
+          node.frequency.value = this.cutoffToFreq(value, 'EQUALIZER');
         } else if (param === 'Q') {
           node.Q.value = this.qToFilterQ(value);
         } else if (param === 'gain') {
@@ -390,9 +391,9 @@ export class AudioEngine {
         } else if (param === 'mix') {
           node._distortion.wet.value = this.clamp01(value);
         } else if (param === 'lowpass-cutoff') {
-          node._lowpass.frequency.value = this.cutoffToFreq(value);
+          node._lowpass.frequency.value = this.cutoffToFreq(value, 'LOWPASS');
         } else if (param === 'highpass-cutoff') {
-          node._highpass.frequency.value = this.cutoffToFreq(value);
+          node._highpass.frequency.value = this.cutoffToFreq(value, 'HIGHPASS');
         }
         break;
       case 'DELAY':

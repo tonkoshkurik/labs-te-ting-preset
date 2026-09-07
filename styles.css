@@ -891,6 +891,16 @@ a { color: var(--ink); transition: color var(--duration-fast) var(--ease-out); }
 
 .modal__content--help { max-width: 560px; }
 .modal__content--progress { max-width: 400px; text-align: center; }
+.modal__content--calibration { max-width: 480px; display: flex; flex-direction: column; gap: var(--space-md); }
+
+.calibration-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.calibration-table th, .calibration-table td {
+  text-align: left;
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--border);
+}
+.calibration-actions { display: flex; gap: var(--space-sm); }
+.calibration-actions[hidden] { display: none; }
 
 /* Effect picker */
 .effect-picker { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-sm); }

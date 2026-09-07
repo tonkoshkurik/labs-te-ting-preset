@@ -186,6 +186,7 @@
           <div class="spectrum__hw-controls" id="spectrumHwControls" hidden>
             <select class="select spectrum__hw-select" id="spectrumHwDeviceSelect" aria-label="Audio input device"></select>
             <button class="btn" id="spectrumHwConnectBtn">Connect</button>
+            <button class="btn" id="openCalibrationBtn">Calibrate cutoff&hellip;</button>
             <span class="spectrum__hw-status" id="spectrumHwStatus"></span>
           </div>
         </div>
@@ -418,6 +419,42 @@
           <div class="progress-bar__fill" id="saveProgressBar"></div>
         </div>
         <p class="modal__status" id="saveProgressStatus">preparing...</p>
+      </div>
+    </div>
+
+    <!-- Cutoff Calibration Modal -->
+    <div class="modal" id="calibrationModal">
+      <div class="modal__backdrop" id="calibrationModalBackdrop"></div>
+      <div class="modal__content modal__content--calibration">
+        <button class="modal__close-btn" id="calibrationModalClose" aria-label="Close">&times;</button>
+        <h3 class="modal__title">Calibrate cutoff &rarr; Hz</h3>
+        <p class="modal__message">
+          Sweeps a filter/EQ row's cutoff on the real device and measures the actual resulting
+          frequency from your connected audio input. Requires: device connected (LIVE), hardware
+          audio input connected, and continuous broadband noise already reaching the TING's mic.
+        </p>
+
+        <div class="form-group">
+          <label for="calibrationRowSelect">Row to calibrate</label>
+          <select class="select" id="calibrationRowSelect"></select>
+        </div>
+
+        <button class="btn btn--add" id="calibrationRunBtn">Run calibration</button>
+
+        <div class="progress-bar" id="calibrationProgressBar" hidden>
+          <div class="progress-bar__fill" id="calibrationProgressFill"></div>
+        </div>
+        <p class="modal__status" id="calibrationStatus"></p>
+
+        <table class="calibration-table" id="calibrationTable" hidden>
+          <thead><tr><th>cutoff</th><th>measured</th></tr></thead>
+          <tbody id="calibrationTableBody"></tbody>
+        </table>
+
+        <div class="calibration-actions" id="calibrationActions" hidden>
+          <button class="btn btn--add" id="calibrationApplyBtn">Apply calibration</button>
+          <button class="btn" id="calibrationDiscardBtn">Discard</button>
+        </div>
       </div>
     </div>
 

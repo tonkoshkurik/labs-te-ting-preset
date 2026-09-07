@@ -87,11 +87,73 @@ export function getEffectDisplayName(effectName) {
 // Map a firmware 0-1 "cutoff" knob to an approximate frequency (log, 20Hz-20kHz).
 // NOTE: this curve is a common-sense guess, not reverse-engineered from the firmware -
 // TE's own README documents the [0,1] range but never states the underlying Hz mapping.
-// Use the live spectrum view (see spectrum.js) to see what a cutoff actually does to the signal.
-export function cutoffToFreq(cutoff) {
+// It can be replaced per-effect-type by real measurements - see the calibration wizard
+// (js/calibration.js), which measures actual hardware behavior via a captured audio input.
+function estimatedCutoffToFreq(cutoff) {
   const minFreq = 20;
   const maxFreq = 20000;
   return minFreq * Math.pow(maxFreq / minFreq, cutoff);
+}
+
+const CALIBRATION_STORAGE_KEY = 'ting-cutoff-calibration';
+let calibration = {}; // { LOWPASS: [{cutoff, freq}, ...], HIGHPASS: [...], EQUALIZER: [...] }
+try {
+  calibration = JSON.parse(localStorage.getItem(CALIBRATION_STORAGE_KEY)) || {};
+} catch {
+  calibration = {};
+}
+
+function persistCalibration() {
+  try {
+    localStorage.setItem(CALIBRATION_STORAGE_KEY, JSON.stringify(calibration));
+  } catch {
+    // ignore - calibration just won't survive a reload
+  }
+}
+
+// Store a measured cutoff->Hz curve for one effect type. Points are sorted by cutoff and
+// must have at least 2 entries with a valid `freq` to take effect.
+export function setCutoffCalibration(effectType, points) {
+  const valid = points.filter(p => typeof p.freq === 'number' && !isNaN(p.freq)).sort((a, b) => a.cutoff - b.cutoff);
+  if (valid.length < 2) return false;
+  calibration[effectType] = valid;
+  persistCalibration();
+  return true;
+}
+
+export function getCutoffCalibration(effectType) {
+  return calibration[effectType] || null;
+}
+
+export function clearCutoffCalibration(effectType) {
+  delete calibration[effectType];
+  persistCalibration();
+}
+
+export function hasCutoffCalibration(effectType) {
+  return !!calibration[effectType];
+}
+
+// cutoff -> Hz, using a measured calibration curve for this effect type when available
+// (piecewise-log-linear interpolation between measured points), falling back to the
+// estimated log(20Hz-20kHz) curve otherwise.
+export function cutoffToFreq(cutoff, effectType) {
+  const points = effectType && calibration[effectType];
+  if (!points || points.length < 2) return estimatedCutoffToFreq(cutoff);
+
+  if (cutoff <= points[0].cutoff) return points[0].freq;
+  if (cutoff >= points[points.length - 1].cutoff) return points[points.length - 1].freq;
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i], b = points[i + 1];
+    if (cutoff >= a.cutoff && cutoff <= b.cutoff) {
+      const t = (cutoff - a.cutoff) / (b.cutoff - a.cutoff);
+      // interpolate in log-frequency space, matching the shape of the estimated curve
+      const logFreq = Math.log(a.freq) + t * (Math.log(b.freq) - Math.log(a.freq));
+      return Math.exp(logFreq);
+    }
+  }
+  return estimatedCutoffToFreq(cutoff);
 }
 
 function formatHz(hz) {
@@ -102,7 +164,18 @@ function formatHz(hz) {
 // (already firmware units) needs no translation. Purely cosmetic - never affects export.
 export function formatParamHint(effectName, paramName, value) {
   if ((effectName === 'LOWPASS' || effectName === 'HIGHPASS' || effectName === 'EQUALIZER') && paramName === 'cutoff') {
-    return `≈ ${formatHz(cutoffToFreq(value))}`;
+    const prefix = hasCutoffCalibration(effectName) ? '' : '≈ ';
+    return `${prefix}${formatHz(cutoffToFreq(value, effectName))}`;
+  }
+  // Other effects reuse the LOWPASS/HIGHPASS calibration for their own cutoff-shaped params
+  // (same [0,1] convention in the firmware's param table - see fx_param_table_1.1.1.json)
+  if (paramName === 'lowpass-cutoff') {
+    const prefix = hasCutoffCalibration('LOWPASS') ? '' : '≈ ';
+    return `${prefix}${formatHz(cutoffToFreq(value, 'LOWPASS'))}`;
+  }
+  if (paramName === 'highpass-cutoff') {
+    const prefix = hasCutoffCalibration('HIGHPASS') ? '' : '≈ ';
+    return `${prefix}${formatHz(cutoffToFreq(value, 'HIGHPASS'))}`;
   }
   if (effectName === 'DELAY' && paramName === 'time') {
     return `${Math.round(value * 1000)}ms`;
